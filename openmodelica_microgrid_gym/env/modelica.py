@@ -31,7 +31,7 @@ class ModelicaEnv(gym.Env):
     """Set of all valid visualisation modes"""
 
     def __init__(self, time_start: float = 0,
-                 reward_fun: Callable[[List[str], np.ndarray, float], float] = lambda cols, obs: 1, is_normalized=True,
+                 reward_fun: Callable[[List[str], np.ndarray, float], float] = lambda cols, obs, risk: 1, is_normalized=True,
                  log_level: int = logging.WARNING, solver_method: str = 'LSODA', max_episode_steps: Optional[int] = 200,
                  model_params: Optional[Dict[str, Union[Callable[[float], float], float]]] = None,
                  net: str = None, model_path: str = '../fmu/grid.network.fmu',
@@ -100,6 +100,7 @@ class ModelicaEnv(gym.Env):
         # Parameters required by this implementation
         self.max_episode_steps = max_episode_steps
         self.time_start = time_start
+        self.net = Network.load(net)
         self.time_step_size = self.net.ts
         self.time_end = np.inf if max_episode_steps is None \
             else self.time_start + max_episode_steps * self.time_step_size
@@ -117,9 +118,8 @@ class ModelicaEnv(gym.Env):
         self.record_states = viz_mode == 'episode'
         self.history = history
         self.is_normalized = is_normalized
-        self.net = Network.load(net)
         # also add the augmented values to the history
-        self.history.cols = self.net.out_vars(True)
+        self.history.cols = self.net.out_vars(True, False)
         self.model_input_names = self.net.in_vars()
         # variable names are flattened to a list if they have specified in the nested dict manner)
         self.model_output_names = self.net.out_vars(False, True)
@@ -267,7 +267,7 @@ class ModelicaEnv(gym.Env):
         self.measurement = []
         self.history.append(self._state)
         self._failed = False
-        obs = super().reset()
+        obs = self._state
         outputs = self.net.augment(obs, self.is_normalized)
         outputs = np.hstack((outputs, obs[len(self.net.out_vars(False)):]))
         return outputs

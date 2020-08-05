@@ -2,9 +2,10 @@ import gym
 
 if __name__ == '__main__':
     env = gym.make('openmodelica_microgrid_gym:ModelicaEnv-v1',
-                   model_input=['i1p1', 'i1p2', 'i1p3'],
+                   #model_input=['i1p1', 'i1p2', 'i1p3'],
                    max_episode_steps=None,
-                   model_output=dict(lc1=['inductor1.i', 'inductor2.i', 'inductor3.i']),
+                   #model_output=dict(lc1=['inductor1.i', 'inductor2.i', 'inductor3.i']),
+                   net='../net/net.yaml',
                    model_path='../fmu/grid.network.fmu')
 
     env.reset()
