@@ -30,12 +30,11 @@ class ModelicaEnv(gym.Env):
     viz_modes = {'episode', 'step', None}
     """Set of all valid visualisation modes"""
 
-    def __init__(self, time_step: float = 1e-4, time_start: float = 0,
-                 reward_fun: Callable[[List[str], np.ndarray], float] = lambda cols, obs: 1,
+    def __init__(self, time_start: float = 0,
+                 reward_fun: Callable[[List[str], np.ndarray, float], float] = lambda cols, obs: 1, is_normalized=True,
                  log_level: int = logging.WARNING, solver_method: str = 'LSODA', max_episode_steps: Optional[int] = 200,
                  model_params: Optional[Dict[str, Union[Callable[[float], float], float]]] = None,
-                 model_input: Optional[Sequence[str]] = None,
-                 model_output: Optional[Union[dict, Sequence[str]]] = None, model_path: str = '../fmu/grid.network.fmu',
+                 net: str = None, model_path: str = '../fmu/grid.network.fmu',
                  viz_mode: Optional[str] = 'episode', viz_cols: Optional[Union[str, List[Union[str, PlotTmpl]]]] = None,
                  history: EmptyHistory = FullHistory()):
         """
@@ -46,7 +45,8 @@ class ModelicaEnv(gym.Env):
         :param time_start: offset of the time in seconds
 
         :param reward_fun:
-            The function receives as a list of variable names and a np.ndarray of the values of the current observation.
+            params: The function receives as a list of variable names and a np.ndarray of the values
+             of the current observation as well as a risk value between 0 and 1.
             The separation is mainly for performance reasons, such that the resolution of data indices can be cached.
             It must return the reward of this timestep as float.
             It should return np.nan or -np.inf or None in case of a failiure.
@@ -64,17 +64,7 @@ class ModelicaEnv(gym.Env):
             dictionary of variable names and scalars or callables.
             If a callable is provided it is called every time step with the current time.
             This callable must return a float that is passed to the fmu.
-        :param model_input: list of strings. Each string representing a FMU input variable.
-        :param model_output: nested dictionaries containing nested lists of strings.
-         The keys of the nested dictionaries will be flattened down and appended to their children and finally prepended
-         to the strings in the nested lists. The strings final strings represent variables from the FMU and the nesting
-         of the lists conveys structure used in the visualisation
-
-         >>> {'inverter': {'condensator': ['i', 'v']}}
-
-         results in
-
-         >>> ['inverter.condensator.i', 'inverter.condensator.v']
+        :param net: Path to the network configuration file passed to the net.Network.load() function
         :param model_path: Path to the FMU
         :param viz_mode: specifies how and if to render
 
@@ -89,10 +79,6 @@ class ModelicaEnv(gym.Env):
              - list of PlotTmpl: Each template will result in a plot
         :param history: history to store observations and measurement (from the agent) after each step
         """
-        if model_input is None:
-            raise ValueError('Please specify model_input variables from your OM FMU.')
-        if model_output is None:
-            raise ValueError('Please specify model_output variables from your OM FMU.')
         if viz_mode not in self.viz_modes:
             raise ValueError(f'Please select one of the following viz_modes: {self.viz_modes}')
 
@@ -114,7 +100,7 @@ class ModelicaEnv(gym.Env):
         # Parameters required by this implementation
         self.max_episode_steps = max_episode_steps
         self.time_start = time_start
-        self.time_step_size = time_step
+        self.time_step_size = self.net.ts
         self.time_end = np.inf if max_episode_steps is None \
             else self.time_start + max_episode_steps * self.time_step_size
 
@@ -130,10 +116,13 @@ class ModelicaEnv(gym.Env):
         self.measurement = []
         self.record_states = viz_mode == 'episode'
         self.history = history
-        self.history.cols = model_output
-        self.model_input_names = model_input
+        self.is_normalized = is_normalized
+        self.net = Network.load(net)
+        # also add the augmented values to the history
+        self.history.cols = self.net.out_vars(True)
+        self.model_input_names = self.net.in_vars()
         # variable names are flattened to a list if they have specified in the nested dict manner)
-        self.model_output_names = self.history.cols
+        self.model_output_names = self.net.out_vars(False, True)
 
         self.viz_col_tmpls = []
         if viz_cols is None:
@@ -250,9 +239,8 @@ class ModelicaEnv(gym.Env):
         :return: True if simulation time exceeded
         """
         if self._failed:
-            logger.info(f'reward was extreme, episode terminated')
+            logger.info(f'risk level exceeded')
             return True
-        # TODO allow for other stopping criteria
         logger.debug(f't: {self.sim_time_interval[1]}, ')
         return abs(self.sim_time_interval[1]) > self.time_end
 
@@ -266,6 +254,7 @@ class ModelicaEnv(gym.Env):
             * initializes the model
         :return: state of the environment after resetting.
         """
+        self.net.reset()
         logger.debug("Experiment reset was called. Resetting the model.")
 
         self.model.reset()
@@ -278,8 +267,10 @@ class ModelicaEnv(gym.Env):
         self.measurement = []
         self.history.append(self._state)
         self._failed = False
-
-        return self._state
+        obs = super().reset()
+        outputs = self.net.augment(obs, self.is_normalized)
+        outputs = np.hstack((outputs, obs[len(self.net.out_vars(False)):]))
+        return outputs
 
     def step(self, action: Sequence) -> Tuple[np.ndarray, float, bool, Mapping]:
         """
@@ -291,6 +282,12 @@ class ModelicaEnv(gym.Env):
         :param action: action to be executed.
         :return: state, reward, is done, info
         """
+
+        params = self.net.params(action)
+        if params:
+            self.model.set(*zip(*params.items()))
+        risk = self.net.risk()
+
         logger.debug("Experiment next step was called.")
         if self.is_done:
             logger.warning(
@@ -324,7 +321,9 @@ class ModelicaEnv(gym.Env):
         # Simulate and observe result state
         self._state = self._simulate()
         obs = np.hstack((self._state, self.measurement))
-        self.history.append(obs)
+        outputs = self.net.augment(obs, self.is_normalized)
+        outputs = np.hstack((outputs, obs[len(self.net.out_vars(False)):]))
+        self.history.append(outputs)
 
         logger.debug("model output: %s, values: %s", self.model_output_names, self._state)
 
@@ -336,11 +335,11 @@ class ModelicaEnv(gym.Env):
         else:
             logger.debug("Experiment step done, experiment done.")
 
-        reward = self.reward(self.history.cols, obs)
-        self._failed = np.isnan(reward) or np.isinf(reward) and reward < 0 or reward is None
+        reward = self.reward(self.history.cols, obs, risk)
+        self._failed = risk >= 1 or np.isnan(reward) or (np.isinf(reward) and reward < 0) or reward is None
 
         # only return the state, the agent does not need the measurement
-        return obs, reward, self.is_done, {}
+        return obs, reward, self.is_done, dict(risk=risk)
 
     def render(self, mode: str = 'human', close: bool = False) -> List[Figure]:
         """
@@ -401,33 +400,3 @@ class ModelicaEnv(gym.Env):
         """
         figs = self.render(close=True)
         return True, figs
-
-
-class NormalizedEnv(ModelicaEnv):
-    def __init__(self, net, is_normalized=True, **kwds):
-        self.is_normalized = is_normalized
-        self.net = Network.load(net)
-        super().__init__(time_step=self.net.ts, model_input=self.net.in_vars(),
-                         model_output=self.net.out_vars(False, False),
-                         **kwds)
-        # also add the augmented values to the history
-        self.history.cols = self.net.out_vars(True)
-
-    def reset(self) -> np.ndarray:
-        self.net.reset()
-        obs = super().reset()
-        outputs = self.net.augment(obs, self.is_normalized)
-        outputs = np.hstack((outputs, obs[len(self.net.out_vars(False)):]))
-        return outputs
-
-    def step(self, action: Sequence) -> Tuple[np.ndarray, float, bool, Mapping]:
-        params = self.net.params(action)
-        if params:
-            self.model.set(*zip(*params.items()))
-        obs, rew, done, info = super().step(action)
-        outputs = self.net.augment(obs, self.is_normalized)
-        outputs = np.hstack((outputs, obs[len(self.net.out_vars(False)):]))
-        self.history._data.pop()
-        self.history.append(outputs)
-
-        return outputs, rew, done, info
