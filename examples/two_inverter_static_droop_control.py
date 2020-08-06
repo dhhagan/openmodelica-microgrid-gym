@@ -88,7 +88,6 @@ if __name__ == '__main__':
                    # viz_cols=['*.m[dq0]', 'slave.freq', 'lcl1.*'],
                    viz_cols=['master.inst*', 'slave.inst*', 'lcl1.*', 'lc1.*', 'slave.freq'],
                    log_level=logging.INFO,
-                   time_step=delta_t,
                    max_episode_steps=max_episode_steps,
                    model_params={'rl1.resistor1.R': partial(load_step,gain=20),
                                  'rl1.resistor2.R': partial(load_step,gain=20),
@@ -98,12 +97,7 @@ if __name__ == '__main__':
                                  'rl1.inductor3.L': 0.001
                                  },
                    model_path='../fmu/grid.network.fmu',
-                   model_input=['i1p1', 'i1p2', 'i1p3', 'i2p1', 'i2p2', 'i2p3'],
-                   model_output=dict(lc1=[['inductor1.i', 'inductor2.i', 'inductor3.i'],
-                                          ['capacitor1.v', 'capacitor2.v', 'capacitor3.v']],
-                                     rl1=[f'inductor{i}.i' for i in range(1, 4)],
-                                     lcl1=[['inductor1.i', 'inductor2.i', 'inductor3.i'],
-                                           ['capacitor1.v', 'capacitor2.v', 'capacitor3.v']]),
+                   net='../net/net.yaml',
                    )
 
     # User runner to execute num_episodes-times episodes of the env controlled by the agent

@@ -48,7 +48,7 @@ class Reward:
                 [[f'lc1.inductor{k}.i' for k in '123'], 'master.phase', [f'master.SPI{k}' for k in 'dq0'],
                  [f'lc1.capacitor{k}.v' for k in '123'], [f'master.SPV{k}' for k in 'dq0']])
 
-    def rew_fun(self, cols: List[str], data: np.ndarray) -> float:
+    def rew_fun(self, cols: List[str], data: np.ndarray, risk) -> float:
         """
         Defines the reward function for the environment. Uses the observations and set-points to evaluate the quality of
         the used parameters.
@@ -191,7 +191,6 @@ if __name__ == '__main__':
 
     env = gym.make('openmodelica_microgrid_gym:ModelicaEnv_test-v1',
                    reward_fun=Reward().rew_fun,
-                   time_step=delta_t,
                    viz_cols=[
                        PlotTmpl([f'lc1.inductor{i}.i' for i in '123'],
                                 callback=xylables_i
@@ -208,9 +207,7 @@ if __name__ == '__main__':
                    max_episode_steps=max_episode_steps,
                    model_params={'inverter1.v_DC': v_DC},
                    model_path='../fmu/grid.network_singleInverter.fmu',
-                   model_input=['i1p1', 'i1p2', 'i1p3'],
-                   model_output=dict(lc1=[['inductor1.i', 'inductor2.i', 'inductor3.i'],
-                                          ['capacitor1.v', 'capacitor2.v', 'capacitor3.v']]),
+                   net='../net/net_singleinverter.yaml',
                    history=FullHistory()
                    )
 
