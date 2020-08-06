@@ -63,58 +63,51 @@ def agent():
 
 @pytest.fixture()
 def env():
-    model_input = ['i1p1', 'i1p2', 'i1p3', 'i2p1', 'i2p2', 'i2p3']
-    conf = {'lc1': [['inductor1.i', 'inductor2.i', 'inductor3.i'],
-                    ['capacitor1.v', 'capacitor2.v', 'capacitor3.v']],
-            'lcl1': [['inductor1.i', 'inductor2.i', 'inductor3.i'],
-                     ['capacitor1.v', 'capacitor2.v', 'capacitor3.v']]}
     env = gym.make('openmodelica_microgrid_gym:ModelicaEnv_test-v1',
                    viz_mode=None,
                    model_path='fmu/test.fmu',
                    max_episode_steps=100,
-                   model_input=model_input,
-                   model_output=conf)
+                   net='net/net.yaml')
 
-    return env, model_input, flatten(conf)
+    return env
 
 
 def test_main(agent, env):
-    env, _, out_params = env
     runner = Runner(agent[1], env)
     runner.run(1)
     # env.history.df.to_hdf('tests/test_main.hd5', 'hist')
     df = env.history.df.head(100)
+    cols = df.columns
     df = df.reindex(sorted(df.columns), axis=1)
     df2 = pd.read_hdf('tests/test_main.hd5', 'hist').head(100)  # noqa
     df2 = df2.reindex(sorted(df2.columns), axis=1)
-    assert df[out_params].to_numpy() == approx(df2[out_params].to_numpy(), 5e-2)
+    assert df[cols].to_numpy() == approx(df2[cols].to_numpy(), 5e-2)
 
 
 def test_main_paramchange(agent, env):
     params, agent = agent
-    env, _, out_params = env
     runner = Runner(agent, env)
     params['voltP'].val = 4
     runner.run(1)
     # env.history.df.to_hdf('tests/test_main2.hd5', 'hist')
     df = env.history.df.head(50)
+    cols = df.columns
     df = df.reindex(sorted(df.columns), axis=1)
     df2 = pd.read_hdf('tests/test_main.hd5', 'hist').head(50)  # noqa
     df2 = df2.reindex(sorted(df2.columns), axis=1)
-    assert df[out_params].to_numpy() != approx(df2[out_params].to_numpy(), 5e-3)
+    assert df[cols].to_numpy() != approx(df2[cols].to_numpy(), 5e-3)
 
     df2 = pd.read_hdf('tests/test_main2.hd5', 'hist').head(50)  # noqa
     df2 = df2.reindex(sorted(df2.columns), axis=1)
-    assert df[out_params].to_numpy() == approx(df2[out_params].to_numpy(), 5e-2)
+    assert df[cols].to_numpy() == approx(df2[cols].to_numpy(), 5e-2)
 
 
 def test_simpleagent(env):
     np.random.seed(1)
-    env, inputs, out_params = env
 
     class RndAgent(Agent):
         def act(self, obs: pd.Series) -> np.ndarray:
-            return np.random.random(len(inputs))
+            return env.action_space.sample()
 
     agent = RndAgent()
     runner = Runner(agent, env)
@@ -122,7 +115,8 @@ def test_simpleagent(env):
 
     # env.history.df.to_hdf('tests/test_main3.hd5', 'hist')
     df = env.history.df.head(50)
+    cols = df.columns
     df = df.reindex(sorted(df.columns), axis=1)
     df2 = pd.read_hdf('tests/test_main3.hd5', 'hist').head(50)  # noqa
     df2 = df2.reindex(sorted(df2.columns), axis=1)
-    assert df[out_params].to_numpy() == approx(df2[out_params].to_numpy(), 5e-3)
+    assert df[cols].to_numpy() == approx(df2[cols].to_numpy(), 5e-3)
