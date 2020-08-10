@@ -119,6 +119,8 @@ if __name__ == '__main__':
     #plt.title('{}'.format())
     plt.legend()
     plt.grid()
+    plt.xlim([1.21,1.351])
+    plt.ylim([49.25,50.1])
     plt.show()
 
 
