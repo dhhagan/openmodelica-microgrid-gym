@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 from openmodelica_microgrid_gym.aux_ctl import DroopParams, InverseDroopParams, DroopController, InverseDroopController
 
-sim_time = 1#30e-3  # /s
+sim_time = 1.5#5e-3#30e-3  # /s
 
 delta_t = 0.5e-4  # simulation time step size / s
 max_episode_steps = sim_time/delta_t  # number of simulation steps per episode
@@ -36,7 +36,7 @@ G_load = 1/R
 G = np.array([[G_load, 0], [0, 0]])
 
 P_offset = np.array([0, 0])
-droop_linear = np.array([0, 1000])     # W/Hz
+droop_linear = np.array([1000, 1000])     # W/Hz
 
 def env_model_ode(t, y):#, arg):
 
@@ -55,7 +55,7 @@ def env_model_ode(t, y):#, arg):
             p[k] += nomVolt * nomVolt * (-G[k][j]*np.cos(thetas[k] - thetas[j]) + \
                                          B[k][j]*np.sin(thetas[k] - thetas[j]))
 
-            print('Pk = {} for k,j = {}{}'.format(p[k],k,j))
+            #print('Pk = {} for k,j = {}{}'.format(p[k],k,j))
 
     p = p+P_offset
 
@@ -75,6 +75,7 @@ if __name__ == '__main__':
     f = nomFreq
     theta1_0 = 0
     theta2_0 = 0
+    t0 = 0
 
     x = np.array([theta1_0, theta2_0, nomFreq, nomFreq])
 
@@ -85,7 +86,7 @@ if __name__ == '__main__':
 
     ode_solver = ode(env_model_ode)
 
-    ode_solver.set_initial_value(x, 0)#.set_f_params(2.0)
+    ode_solver.set_initial_value(x, t0)#.set_f_params(2.0)
 
 
 
@@ -98,9 +99,12 @@ if __name__ == '__main__':
 
     while ode_solver.successful() and ode_solver.t < max_episode_steps*delta_t:
 
+        if ode_solver.t > (max_episode_steps*delta_t)-1*delta_t:
+            asd = 1
         #print(count)
         #f_list.append(ode_solver.integrate(ode_solver.t+delta_t))
-        result[count] = ode_solver.integrate(ode_solver.t+delta_t)
+        #result[count] = ode_solver.integrate(ode_solver.t+delta_t)
+        result[count] = ode_solver.integrate(t[count])
         theta[count] = result[count][0:2]
         freq[count] = result[count][2:]
 
@@ -119,8 +123,8 @@ if __name__ == '__main__':
     #plt.title('{}'.format())
     plt.legend()
     plt.grid()
-    plt.xlim([1.21,1.351])
-    plt.ylim([49.25,50.1])
+    #plt.xlim([1.21,1.351])
+    #plt.ylim([49.25,50.1])
     plt.show()
 
 
