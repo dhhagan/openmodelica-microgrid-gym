@@ -103,8 +103,8 @@ if __name__ == '__main__':
             asd = 1
         #print(count)
         #f_list.append(ode_solver.integrate(ode_solver.t+delta_t))
-        #result[count] = ode_solver.integrate(ode_solver.t+delta_t)
-        result[count] = ode_solver.integrate(t[count])
+        result[count] = ode_solver.integrate(ode_solver.t+delta_t)
+        #result[count] = ode_solver.integrate(t[count])
         theta[count] = result[count][0:2]
         freq[count] = result[count][2:]
 
