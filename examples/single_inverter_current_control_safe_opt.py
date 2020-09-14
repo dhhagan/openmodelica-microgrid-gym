@@ -32,19 +32,19 @@ from openmodelica_microgrid_gym.util import dq0_to_abc, nested_map, FullHistory
 # - Ki: 1D example: Only the integral gain Ki of the PI controller is adjusted
 # - Kpi: 2D example: Kp and Ki are adjusted simultaneously
 
-adjust = 'Kpi'
+adjust = 'Ki'
 
 # Check if really only one simulation scenario was selected
 if adjust not in {'Kp', 'Ki', 'Kpi'}:
     raise ValueError("Please set 'adjust' to one of the following values: 'Kp', 'Ki', 'Kpi'")
 
 include_simulate = True
-show_plots = False
-balanced_load = False
+show_plots = True
+balanced_load = True
 do_measurement = False
 
 # If True: Results are stored to directory mentioned in: REBASE to DEV after MERGE #60!!
-safe_results = True
+safe_results = False
 
 # Files saves results and  resulting plots to the folder saves_VI_control_safeopt in the current directory
 current_directory = os.getcwd()
@@ -52,15 +52,15 @@ save_folder = os.path.join(current_directory, r'MC03_lenRun_unbal_lessnoise')
 os.makedirs(save_folder, exist_ok=True)
 
 lengthscale_vec = np.linspace(0.5, 0.5, 1)
-unsafe_vec = np.zeros(20)
+unsafe_vec = np.zeros(len(lengthscale_vec))
 
 np.random.seed(0)
 
 # Simulation definitions
 delta_t = 1e-4  # simulation time step size / s
 max_episode_steps = 1000  # number of simulation steps per episode
-num_episodes = 100  # number of simulation episodes (i.e. SafeOpt iterations)
-n_MC = 5  # number of Monte-Carlo samples for simulation - samples device parameters (e.g. L,R, noise) from
+num_episodes = 3  # number of simulation episodes (i.e. SafeOpt iterations)
+n_MC = 1  # number of Monte-Carlo samples for simulation - samples device parameters (e.g. L,R, noise) from
 # distribution to represent real world more accurate
 v_DC = 60  # DC-link voltage / V; will be set as model parameter in the FMU
 nomFreq = 50  # nominal grid frequency / Hz
@@ -84,8 +84,10 @@ gain_plant = 1 / R
 # take inverter into account using s&h (exp(-s*delta_T/2))
 Tn = tau_plant  # Due to compensate
 Kp_init = tau_plant / (2 * delta_t * gain_plant * v_DC)
-Ki_init = Kp_init / Tn
+Ki_init = 59 # Kp_init / Tn
 
+#Kp_init = 0.2
+#Ki_init = 20
 
 # Kp_init = 0
 
@@ -98,7 +100,7 @@ class Reward:
         if self._idx is None:
             self._idx = nested_map(
                 lambda n: obs.index(n),
-                [[f'rl.inductor{k}.i' for k in '123'], 'master.phase', [f'master.SPI{k}' for k in 'dq0']])
+                [[f'lc.inductor{k}.i' for k in '123'], 'master.phase', [f'master.SPI{k}' for k in 'dq0']])
 
     def rew_fun(self, cols: List[str], data: np.ndarray) -> float:
         """
@@ -149,13 +151,13 @@ if __name__ == '__main__':
 
         # For 1D example, if Ki should be adjusted
         if adjust == 'Ki':
-            bounds = [(0, 30)]  # bounds on the input variable Ki
-            lengthscale = [5.]  # length scale for the parameter variation [Ki] for the GP
+            bounds = [(0, 150)]  # bounds on the input variable Ki
+            lengthscale = [40.]  # length scale for the parameter variation [Ki] for the GP
 
         # For 2D example, choose Kp and Ki as mutable parameters (below) and define bounds and lengthscale for both of them
         if adjust == 'Kpi':
-            bounds = [(0.0, 4), (0, 200)]
-            lengthscale = [0.3, 25.]
+            bounds = [(0.0, 0.7), (0, 150)]
+            lengthscale = [0.16, 40.]
 
         # The performance should not drop below the safe threshold, which is defined by the factor safe_threshold times
         # the initial performance: safe_threshold = 0.8 means. Performance measurement for optimization are seen as
@@ -183,15 +185,15 @@ if __name__ == '__main__':
         if adjust == 'Kp':
             # mutable_params = parameter (Kp gain of the current controller of the inverter) to be optimized using
             # the SafeOpt algorithm
-            mutable_params = dict(currentP=MutableFloat(0.01))  # 5e-3))
+            mutable_params = dict(currentP=MutableFloat(Kp_init))  # 5e-3))
 
             # Define the PI parameters for the current controller of the inverter
-            current_dqp_iparams = PI_params(kP=mutable_params['currentP'], kI=115, limits=(-1, 1))
+            current_dqp_iparams = PI_params(kP=mutable_params['currentP'], kI=Ki_init, limits=(-1, 1))
 
         # For 1D example, if Ki should be adjusted
         elif adjust == 'Ki':
-            mutable_params = dict(currentI=MutableFloat(20))
-            current_dqp_iparams = PI_params(kP=0.01, kI=mutable_params['currentI'], limits=(-1, 1))
+            mutable_params = dict(currentI=MutableFloat(Ki_init))
+            current_dqp_iparams = PI_params(kP=Kp_init, kI=mutable_params['currentI'], limits=(-1, 1))
 
         # For 2D example, choose Kp and Ki as mutable parameters
         elif adjust == 'Kpi':
@@ -223,8 +225,8 @@ if __name__ == '__main__':
                              dict(bounds=bounds, noise_var=noise_var, prior_mean=prior_mean,
                                   safe_threshold=safe_threshold, explore_threshold=explore_threshold),
                              [ctrl],
-                             dict(master=[[f'rl.inductor{k}.i' for k in '123'],
-                                          [f'rl.inductor{k}.i' for k in '123'],
+                             dict(master=[[f'lc.inductor{k}.i' for k in '123'],
+                                          [f'lc.inductor{k}.i' for k in '123'],
                                           i_ref]),
                              history=FullHistory()
                              )
@@ -273,10 +275,13 @@ if __name__ == '__main__':
         if include_simulate:
 
             # Defining unbalanced loads sampling from Gaussian distribution with sdt = 0.2*mean
-            r_load = Load(R, 0.2 * R, balanced=balanced_load)
-            l_load = Load(L, 0.2 * L, balanced=balanced_load)
+            #r_load = Load(R, 0.2 * R, balanced=balanced_load)
+            #l_load = Load(L, 0.2 * L, balanced=balanced_load)
             #i_noise = Noise([0, 0, 0], [0.0822, 0.103, 0.136], 0.07, 0.16)
-            i_noise = Noise([0, 0, 0], [0.05, 0.05, 0.05], 0.001, 0.1)
+            r_load = Load(R, 0 * R, balanced=balanced_load)
+            l_load = Load(L, 0 * L, balanced=balanced_load)
+            i_noise = Noise([0, 0, 0], [0.0, 0.0, 0.0], 0.0, 0.0)
+            #i_noise = Noise([0, 0, 0], [0.05, 0.05, 0.05], 0.001, 0.1)
 
 
             # i_noise = np.array([[0.0, 0.0822], [0.0, 0.103], [0.0, 0.136]])
@@ -336,7 +341,7 @@ if __name__ == '__main__':
                            reward_fun=Reward().rew_fun,
                            time_step=delta_t,
                            viz_cols=[
-                               PlotTmpl([[f'rl.inductor{i}.i' for i in '123'], [f'master.SPI{i}' for i in 'abc']],
+                               PlotTmpl([[f'lc.inductor{i}.i' for i in '123'], [f'master.SPI{i}' for i in 'abc']],
                                         callback=xylables,
                                         color=[['b', 'r', 'g'], ['b', 'r', 'g']],
                                         style=[[None], ['--']]
@@ -356,16 +361,16 @@ if __name__ == '__main__':
                            viz_mode='episode',
                            max_episode_steps=max_episode_steps,
                            # model_params={'inverter1.gain.u': v_DC},
-                           model_params={'rl.resistor1.R': partial(r_load.load_step, n=0),
-                                         'rl.resistor2.R': partial(r_load.load_step, n=1),
-                                         'rl.resistor3.R': partial(r_load.load_step, n=2),
-                                         'rl.inductor1.L': partial(l_load.load_step, n=0),
-                                         'rl.inductor2.L': partial(l_load.load_step, n=1),
-                                         'rl.inductor3.L': partial(l_load.load_step, n=2)},
-                           model_path='../fmu/grid.testbench_SC2.fmu',
+                           model_params={'lc.resistor1.R': partial(r_load.load_step, n=0),
+                                         'lc.resistor2.R': partial(r_load.load_step, n=1),
+                                         'lc.resistor3.R': partial(r_load.load_step, n=2),
+                                         'lc.inductor1.L': partial(l_load.load_step, n=0),
+                                         'lc.inductor2.L': partial(l_load.load_step, n=1),
+                                         'lc.inductor3.L': partial(l_load.load_step, n=2)},
+                           model_path='../fmu/grid.paper.fmu',
                            model_input=['i1p1', 'i1p2', 'i1p3'],
                            # model_output=dict(#rl=[['inductor1.i', 'inductor2.i', 'inductor3.i'],
-                           model_output=dict(rl=[['inductor1.i', 'inductor2.i', 'inductor3.i']]  # ,
+                           model_output=dict(lc=[['inductor1.i', 'inductor2.i', 'inductor3.i']]  # ,
                                              # ['resistor1.R', 'resistor2.R', 'resistor3.R'],
                                              # ['inductor1.L', 'inductor2.L', 'inductor3.L']]
                                              # rl=[['resistor1.R', 'resistor2.R', 'resistor3.R']],
@@ -437,6 +442,8 @@ if __name__ == '__main__':
             print('\n  {} = {}'.format(adjust, agent.history.df.at[np.argmax(agent.history.df['J']), 'Params']))
             print('  Resulting in a performance of J = {}'.format(np.max(agent.history.df['J'])))
             print('\n\nBest experiment results are plotted in the following:')
+
+            print(unsafe_vec)
 
         if do_measurement:
             #####################################

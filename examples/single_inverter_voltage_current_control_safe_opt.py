@@ -26,8 +26,8 @@ from openmodelica_microgrid_gym.util import dq0_to_abc, nested_map, FullHistory
 
 # Simulation definitions
 delta_t = 0.5e-4  # simulation time step size / s
-max_episode_steps = 300  # number of simulation steps per episode
-num_episodes = 2  # number of simulation episodes (i.e. SafeOpt iterations)
+max_episode_steps = 1000  # number of simulation steps per episode
+num_episodes = 5  # number of simulation episodes (i.e. SafeOpt iterations)
 v_DC = 1000  # DC-link voltage / V; will be set as model parameter in the FMU
 nomFreq = 50  # nominal grid frequency / Hz
 nomVoltPeak = 230 * 1.414  # nominal grid voltage / V
@@ -122,8 +122,8 @@ if __name__ == '__main__':
     #####################################
     # Definition of the controllers
     # Choose Kp and Ki for the current and voltage controller as mutable parameters
-    mutable_params = dict(currentP=MutableFloat(10e-3), currentI=MutableFloat(10), voltageP=MutableFloat(25e-3),
-                            voltageI=MutableFloat(60))
+    mutable_params = dict(currentP=MutableFloat(10e-3), currentI=MutableFloat(10), voltageP=MutableFloat(0.05),
+                            voltageI=MutableFloat(75))
 
     voltage_dqp_iparams = PI_params(kP=mutable_params['voltageP'], kI=mutable_params['voltageI'], limits=(-iLimit, iLimit))
     current_dqp_iparams = PI_params(kP=mutable_params['currentP'], kI=mutable_params['currentI'], limits=(-1, 1))
